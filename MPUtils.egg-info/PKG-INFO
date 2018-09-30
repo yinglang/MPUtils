@@ -1,0 +1,27 @@
+Metadata-Version: 1.1
+Name: MPUtils
+Version: 0.1.0
+Summary: some analysis and visualize utils code for mxnet/pytorch coding
+Home-page: https://github.com/yinglang/MPUtils
+Author: yinglang
+Author-email: y19941010@126.com
+License: MIT
+Description: # MPUtils
+        some utils code for deep learning coding, main include uitls for mxnet/pytorch, can use for data/result analysis(statistic or visualize) to find bug or seting super params
+        
+Platform: UNKNOWN
+Classifier: Environment :: CPU Environment
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Natural Language :: Chinese
+Classifier: Operating System :: MacOS
+Classifier: Operating System :: Microsoft
+Classifier: Operating System :: POSIX
+Classifier: Operating System :: Unix
+Classifier: Topic :: mxnet :: utils
+Classifier: Topic :: pytorch :: utils
+Classifier: Topic :: Deep Learning
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Programming Language :: Python :: 3.4
+Classifier: Programming Language :: Python :: 3.5
+Classifier: Programming Language :: Python :: 3.6
