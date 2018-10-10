@@ -74,6 +74,13 @@ def run_matlab_eval_code(matlab_code='../../dataset/CaltechPedestrians/code3.2.1
         
 def validate_matlab(net, val_data2, ctx, out_dir, person_label, clear_out_dir=False, verbose=False, is_test=True):
     """
+      1. clear out_dir (default '../../dataset/CaltechPedestrains/origin/res/temp') and write result to it.
+      2. run matlab code(default is '../../dataset/CaltechPedestrians/code3.2.1/MydbEval.m') to evaluate, 
+                and output result to .txt file in $data_root/code/temp_results (it was specified in .m file)
+      3. read result in $data_root/code/temp_results/*.txt file and return.
+
+      params:
+      -------
         net: net, output (cids, scores, bboxes)
         val_data2: dataloader, iter output (data, label, Iids(setid, vid, iid))
         out_dir: temp output dir
@@ -90,7 +97,7 @@ def validate_matlab(net, val_data2, ctx, out_dir, person_label, clear_out_dir=Fa
     
     if clear_out_dir or is_empty_dir(out_dir):
         net.collect_params().reset_ctx(ctx)
-        net.set_nms(nms_thresh=0.45, nms_topk=400)
+        # net.set_nms(nms_thresh=0.45, nms_topk=400)
         for i, (x, y, ids) in enumerate(val_data2):
             x, y = x.as_in_context(ctx), y.as_in_context(ctx)
             det_bboxes, det_ids, det_scores = [], [], []
