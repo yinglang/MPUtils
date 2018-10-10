@@ -70,7 +70,7 @@ def draw_bbox(fig, bboxes, color=(0, 0, 0), linewidth=1, fontsize=5, normalized_
         fig.add_patch(rect)
         if show_text:
             text = str(int(box[4]))
-            if len(box) >= 6: text += " {.3f}".format(box[5])
+            if len(box) >= 6: text += " {:.3f}".format(box[5])
             fig.text(box[0], box[1], text , 
                 bbox=dict(facecolor=(1, 1, 1), alpha=0.5), fontsize=fontsize, color=(0, 0, 0))   
     
@@ -149,6 +149,111 @@ def show_image(image, label=None, rgb_mean=np.array([0, 0, 0]), std=np.array([1,
     if label is not None: 
         sl = tuple([1] + list(label.shape))
         label = label.reshape(sl).astype(np.float)
-    show_images(image, label, rgb_mean, std, MN, color, linewidth, figsize, 
+    return show_images(image, label, rgb_mean, std, MN, color, linewidth, figsize, 
                 show_text, fontsize, xlabels, ylabels, clip, normalized_label,
                bboxes_list, bboxes_colors)
+
+
+def show_det_results(images, outs, labels=None, rgb_mean=np.array([0, 0, 0]), std=np.array([1, 1, 1]), 
+                     threshold=0.5, class_names=None, colors = ['blue', 'green', 'red', 'black', 'magenta'],
+                     MN=None, figsize=(8, 4), linewidth=1, show_text=True, fontsize=5, normalized_label=True):
+    """
+    im: image data, numpy.array or ndarray
+    out: detection result, numpy.array or ndarray, [[xmin, ymin, xmax, ymax, class_id, scores], ...]
+    labels: ground truth, numpy.array or ndarray [[xmin, ymin, xmax,ymax, class_id]]
+    theshold: score threshold
+    class_name: class or labels name
+    MN: sub figure's row and col number
+    normalized_label: if bbox was normalized to [0, 1] then set True, else set False
+    """
+#     images = try_asnumpy(images)
+#     outs = try_asnumpy(outs)
+#     labels = try_asnumpy(labels)
+    if np.max(outs[:, :4]) <= 1.:
+        if normalized_label==False: warnings.warn("[draw_bbox]:the label boxes' max value less than 1.0, may be it is noramlized box," + 
+                      "maybe you need set normalized_label==True", UserWarning)
+    else:
+        if normalized_label==True: warnings.warn("[draw_bbox]:the label boxes' max value bigger than 1.0, may be it isn't noramlized box," + 
+                      "maybe you need set normalized_label==False.", UserWarning)
+
+    images = (images.transpose((0, 2, 3, 1)) * std) + rgb_mean
+    if MN is None:
+        M, N = (images.shape[0] + 4) / 5, 5
+    else:
+        M, N = MN
+    _, figs = plt.subplots(M, N, figsize=figsize)
+    
+    for i in range(M):
+        c_figs = figs[i] if M > 1 else figs
+        for j in range(N):
+            if N * i + j < images.shape[0]:
+                image = (images[N * i + j]).clip(0, 1)
+                fig = c_figs[j] if N > 1 else c_figs
+                fig.imshow(image)
+                fig.axes.get_xaxis().set_visible(False)
+                fig.axes.get_yaxis().set_visible(False)
+                
+                if outs is not None:
+                    out = outs[N * i + j]
+                    out = out[out[:, 4] >= 0]
+                    for row in out:
+                        class_id, score = int(row[4]), row[5]
+                        if class_id < 0 or score < threshold:  # class_id < 0 is background rect
+                            continue
+                        color = colors[class_id%len(colors)]
+                        if normalized_label: box = row[0:4] * np.array([image.shape[1],image.shape[0]]*2)
+                        else: box = row[0:4]
+                        rect = box_to_rect(box, color, linewidth)
+                        fig.add_patch(rect)
+                        if show_text:
+                            text = class_names[class_id] if class_names else "class " + str(class_id)
+                            fig.text(box[0], box[1],
+                                           '{:s} {:.2f}'.format(text, score),
+                                           bbox=dict(facecolor=color, alpha=0.5),
+                                           fontsize=10, color='white')
+                
+                if labels is not None:
+                    label = labels[N * i + j]
+                    for row in label:
+                        class_id = int(row[4])
+                        if class_id < 0:  # class_id < 0 is background rect
+                            continue
+                        color = colors[len(colors)-1-class_id%len(colors)]
+                        if normalized_label: box = row[0:4] * np.array([image.shape[1],image.shape[0]]*2)
+                        else: box = row[0:4]
+                        rect = box_to_rect(box, 'red', linewidth)
+                        fig.add_patch(rect)
+                        if show_text:
+                            text = class_names[class_id] if class_names else "class " + str(class_id)
+                            fig.text(box[0], box[1],
+                                           '{:s}'.format(text),
+                                           bbox=dict(facecolor=color, alpha=0.5),
+                                           fontsize=10, color='white')
+
+            else:
+                fig.set_visible(False)
+    #plt.show()
+
+import cv2
+
+def add_cv2_rects(img, boxes, color, linewidth=1):
+    for box in boxes:
+        x1, y1, x2, y2 = box[:4].astype(np.int)
+        # print(x1, y1, x2, y2, img.shape)
+        img = cv2.rectangle(img, (x1, y1, x2-x1, y2-y1), color=color, thickness=linewidth)
+    return img
+
+def write_image(filename, image, label, color=(0, 255, 0), linewidth=1, bboxes_list=[], bboxes_colors=[]):
+    """
+        label: np.array, [[x1, y1, x2, y2, (cid, (score))]]
+    """
+    image = image.astype(np.uint8)
+    if label.shape[1] > 4: label = label[label[:, 4] >= 0]
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+    image = add_cv2_rects(image, label, color, linewidth)
+    for boxes, box_color in zip(bboxes_list, bboxes_colors):
+        image = add_cv2_rects(image, boxes, box_color, linewidth)
+#     cv2.imshow('', image)
+#     cv2.waitKey()
+    cv2.imwrite(filename, image)

@@ -231,15 +231,19 @@ class TrainTransform(presets.ssd.SSDDefaultTrainTransform):
         img = mx.nd.image.to_tensor(img)
         img = mx.nd.image.normalize(img, mean=self._mean, std=self._std)
 
-        if len(bbox) == 0: bbox = np.array([[-1] * 6])
         if self._anchors is None:
+            if len(bbox) == 0: bbox = np.array([[-1] * 6])
             return returned_value([img, bbox.astype(img.dtype)], args, kwargs)
 
         # generate training target so cpu workers can help reduce the workload on gpu
-        gt_bboxes = mx.nd.array(bbox[np.newaxis, :, :4])
-        gt_ids = mx.nd.array(bbox[np.newaxis, :, 4:5])
-        cls_targets, box_targets, _ = self._target_generator(
-            self._anchors, None, gt_bboxes, gt_ids)
+        if len(bbox) > 0:
+            gt_bboxes = mx.nd.array(bbox[np.newaxis, :, :4])
+            gt_ids = mx.nd.array(bbox[np.newaxis, :, 4:5])
+            cls_targets, box_targets, _ = self._target_generator(
+                self._anchors, None, gt_bboxes, gt_ids)
+        else:
+            cls_targets = nd.zeros(shape=(1, self._anchors.size//4))
+            box_targets = nd.zeros(shape=(1, self._anchors.size//4, 4))
         return returned_value([img, cls_targets[0], box_targets[0]], args, kwargs)
 
     
@@ -277,3 +281,81 @@ class ValidTransform(object):
         img = mx.nd.image.normalize(img, mean=self._mean, std=self._std)
         return returned_value([img, bbox.astype(img.dtype)], args, kwargs)
 
+
+class SSDTransform(presets.ssd.SSDDefaultTrainTransform):
+    """
+        reference to SSDDefaultTrainTransform
+    """
+    def __init__(self, width, height, anchors=None, mean=(0.485, 0.456, 0.406),
+                 std=(0.229, 0.224, 0.225), iou_thresh=0.5, box_norm=(0.1, 0.1, 0.2, 0.2),
+                 color_distort_kwargs={}, random_expand_kwargs={}, random_crop_kwargs={},
+                 level='image', **kwargs):
+        """
+            ?? presets.ssd.experimental.image.random_color_distort
+            ?? presets.ssd.timage.random_expand
+            ?? presets.ssd.experimental.bbox.random_crop_with_constraints
+            
+            level: 'image' return [data, gt(pad_val=-1)], 'anchor' return [data, cls_target, bbox_target],
+                   'image,anchor' return [data, gt, cls_target, bbox_target]
+        """
+        super(SSDTransform, self).__init__(width, height, anchors, mean,
+                 std, iou_thresh, box_norm, **kwargs)
+        self.color_distort_kwargs = color_distort_kwargs
+        self.random_expand_kwargs = random_expand_kwargs
+        self.random_crop_kwargs = random_crop_kwargs
+        self.level = level = level.lower()
+        assert level in ['image', 'anchor', 'image,anchor'], "level must be one of ['image', 'anchor', 'image,anchor']"
+        assert (anchors is not None) or level=='image', "anchors must be specified when level != {}".format(level)
+
+    def __call__(self, src, label, *args, **kwargs):
+        """Apply transform to training image/label."""
+        # random color jittering
+        img = presets.ssd.experimental.image.random_color_distort(src, **self.color_distort_kwargs)
+
+        # random expansion with prob 0.5
+        if np.random.uniform(0, 1) > 0.5:
+            img, expand = presets.ssd.timage.random_expand(img, fill=[m * 255 for m in self._mean], **self.random_expand_kwargs)
+            if label.shape[0] > 0: 
+                bbox = presets.ssd.tbbox.translate(label, x_offset=expand[0], y_offset=expand[1])
+            else:
+                bbox = label
+        else:
+            img, bbox = img, label
+        # random cropping
+        h, w, _ = img.shape
+        bbox, crop = random_crop_with_constraints(bbox, (w, h), **self.random_crop_kwargs)
+        x0, y0, w, h = crop
+        img = mx.image.fixed_crop(img, x0, y0, w, h)
+
+        # resize with random interpolation
+        h, w, _ = img.shape
+        interp = np.random.randint(0, 5)
+        img = presets.ssd.timage.imresize(img, self._width, self._height, interp=interp)
+        if len(bbox) > 0: bbox = presets.ssd.tbbox.resize(bbox, (w, h), (self._width, self._height))
+
+        # random horizontal flip
+        h, w, _ = img.shape
+        img, flips = presets.ssd.timage.random_flip(img, px=0.5)
+        if len(bbox) > 0: bbox = presets.ssd.tbbox.flip(bbox, (w, h), flip_x=flips[0])
+
+        # to tensor
+        img = mx.nd.image.to_tensor(img)
+        img = mx.nd.image.normalize(img, mean=self._mean, std=self._std)
+
+        if self._anchors is None or self.level == 'image':
+            if len(bbox) == 0: bbox = np.array([[-1] * 6])
+            return returned_value([img, bbox.astype(img.dtype)], args, kwargs)
+
+        # generate training target so cpu workers can help reduce the workload on gpu
+        if len(bbox) > 0:
+            gt_bboxes = mx.nd.array(bbox[np.newaxis, :, :4])
+            gt_ids = mx.nd.array(bbox[np.newaxis, :, 4:5])
+            cls_targets, box_targets, _ = self._target_generator(
+                self._anchors, None, gt_bboxes, gt_ids)
+        else:
+            cls_targets = nd.zeros(shape=(1, self._anchors.size//4))
+            box_targets = nd.zeros(shape=(1, self._anchors.size//4, 4))
+        if level == 'anchor':
+            return returned_value([img, cls_targets[0], box_targets[0]], args, kwargs)
+        else:
+            return returned_value([img, bbox.astype(img.dtype), cls_targets[0], box_targets[0]], args, kwargs)

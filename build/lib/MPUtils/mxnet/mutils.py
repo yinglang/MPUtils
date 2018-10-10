@@ -22,14 +22,15 @@ from gluoncv.data.batchify import Tuple, Stack, Pad
 from mxnet.gluon.data import DataLoader
 from mxnet import autograd, nd, gluon
 def tri_data_loader(batch_size, transform_train, transform_valid, num_workers=0,
-                train_dataset=None, valid_dataset=None, valid_train=False, 
-                batchify_fns={'valid': None, 'train': None, 'valid_train':None}):
+                train_dataset=None, valid_dataset=None, valid_train_dataset=None, 
+                batchify_fns=None, train_shuffle=True):
     """
             batchify_fns: dict(), like in ssd
-                       {'train': Tuple(Stack(), Stack(), Stack()),
-                        'valid': Tuple(Stack(), Pad(pad_val=-1)),
-                        'valid_train': Tuple(Stack(), Stack(), Stack())}
     """
+    if batchify_fns is None:
+       batchify_fns = {'train': Tuple(Stack(), Stack(), Stack()),
+                       'valid': Tuple(Stack(), Pad(pad_val=-1)),
+                       'valid_train': Tuple(Stack(), Pad(pad_val=-1))}
     # 1. valid_data
     valid_data = DataLoader(valid_dataset.transform(transform_valid), batch_size, 
                         shuffle=False, batchify_fn=batchify_fns['valid'], last_batch='keep',
@@ -37,14 +38,14 @@ def tri_data_loader(batch_size, transform_train, transform_valid, num_workers=0,
     
     # 2. train_data
     train_data = DataLoader(train_dataset.transform(transform_train), batch_size,
-                             shuffle=True, batchify_fn=batchify_fns['train'], last_batch='rollover',
+                             shuffle=train_shuffle, batchify_fn=batchify_fns['train'], last_batch='rollover',
                              num_workers=num_workers)
     
     # 3. valid_train_data
-    if valid_train == False:
+    if valid_train_dataset is None:
         return train_data, valid_data, train_dataset.classes
     else:
-        valid_train_data = DataLoader(train_dataset.transform(transform_valid), batch_size, 
+        valid_train_data = DataLoader(valid_train_dataset.transform(transform_valid), batch_size, 
                             shuffle=False, batchify_fn=batchify_fns['valid_train'], last_batch='keep',
                             num_workers=num_workers)
         return train_data, valid_data, train_dataset.classes, valid_train_data

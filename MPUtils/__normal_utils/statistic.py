@@ -171,6 +171,8 @@ class StatisticMetric(object):
             
 
 class AspectRatioMetric(StatisticMetric):
+    """
+    """
     def update(self, boxes):
         r = []
         for box in boxes:
@@ -328,7 +330,6 @@ class ObjectLevelMetric(StatisticMetric):
             bbox_t = bbox_t[valid]
             for cid in set(cls_t):
                 valid = (cls_t == cid)
-                # /2 make allow same box error can be <=1 pix
                 bbox = np.round(bbox_t[valid]) 
                 boxs, counts = np.unique(list(bbox), return_counts=True, axis=0)
                 r.extend([[int(cid), count] for count in counts])
@@ -466,10 +467,118 @@ class ObjectVCenterMetric(StatisticMetric):
                 count[obj] = {center: 1}
             else:
                 sub_count = count[obj]
-                if obj not in sub_count:
+                if center not in sub_count:
                     sub_count[center] = 1
                 else:
                     sub_count[center] += 1
         r = self._objectVcenter(count)
         self._data.extend(r)
         return r
+
+class MatStatisticMetric(object):
+    """
+        each element is a mat shape=(Li,S), each element can have diffrent Li and same S.
+        _data: [[(a1, a2), (b1, b2), (c1, c2), (d1, d2)], [e,f, g] ...], list(np.array(shape=(Li, S)))
+        
+        example:
+        -------
+        >> i = MatStatisticMetric()
+        >> i.update([[1, 2, 3], [4, 5]])
+        >> i.concat_get()
+           array([1, 2, 3, 4, 5])
+    """
+    def __init__(self, name=''):
+        self.name = name
+        self._data = []
+        
+    def update(self, x):
+        self._data.extend(x)
+    
+    def get_mean(self, idx=None):
+        if idx is None:
+            r = [np.mean(d) for d in self._data]
+        else:
+            r = [np.mean(np.array(d)[:, idx]) for d in self._data]
+        return np.array(r)
+    
+    def get_max(self, idx=None):
+        if idx is None:
+            r = [np.max(d) for d in self._data]
+        else:
+            r = [np.max(np.array(d)[:, idx]) for d in self._data]
+        return np.array(r)
+    
+    def get_min(self, idx=None):
+        if idx is None:
+            r = [np.min(d) for d in self._data]
+        else:
+            r = [np.min(np.array(d)[:, idx]) for d in self._data]
+        return np.array(r)
+    
+    def get(self):
+        return self._data
+    
+    def concat_get(self):
+        self._data = [np.array(d) for d in self._data]
+        return np.concatenate(self._data, axis=0)
+        
+
+#from MPUtils import MatStatisticMetric
+#from MPUtils import AspectRatioMetric, BoxSizeMetric
+
+class IOUMetric(MatStatisticMetric):
+    """
+        1. 命中gt(object)的anchor的平均IOU (顺便统计平均max, min)
+        2. 哪些gt(object)的的平均IOU很小 (< threshold)
+        3. 哪些gt(object)存在很小的IOU  (< threshold)
+    """
+    def __init__(self, *args, **kwargs):
+        super(IOUMetric, self).__init__(*args, **kwargs)
+        self._boxes = []
+    
+    def update(self, ious, obj_boxes, obj_t):
+        """
+            ious: shape=(num_obj, num_anchors), ious[obj_id, anchor_id] means iou of obj_id and anchor_id
+            obj_boxes: [[obj1_x1, obj1_y1, obj1_x2, obj1_y2]...], shape=(num_obj, 4)
+            obj_t: [box1_object_id, box2_object_id ....], shape=(num_anchors,)
+            return:
+                each element is iou array of object i with all anchor box matched it, so may have diffrent Li
+                [(obj1_anchor1_iou, obj1_anchor2_iou, ...obj1_anchori_iou),
+                 (obj2_anchor1_iou, obj2_anchor2_iou, ...obj1_anchori_iou, ...,obj2_anchorj_iou),...].
+        """
+        obj_ious = [[] for _ in range(len(obj_boxes))]
+        for anchor_id, obj_id in enumerate(obj_t):
+            obj_ious[obj_id].append(ious[obj_id, anchor_id])
+            
+        self._data.extend(obj_ious)
+        self._boxes.extend(obj_boxes)
+        return obj_ious
+    
+    def get_small_iou_box_info(self, threshold=0.5, type='mean'):
+        """
+        param:
+        ------
+            threshold: < threshold is small iou
+            type: optinal in ('mean', 'max', 'min'). which iou used to compare threshold for every object, 
+                cuase a object can match many anchor, have many iou data, so need to choose which to compare
+            
+        return:
+        -------
+            small_rate: how many rate object iou smaller than threshold
+            bm: BoxSizeMetric, all small iou objects' BoxSizeMetric
+            am: AspectRatioMetric, all small iou objects' AspectRatioMetric
+        """
+        func = {'mean': self.get_mean, 'max':self.get_max, 'min': self.get_min}
+        ious = func[type.lower()]()                # get iou info for every object
+        boxes = np.array(self._boxes)              # get box for every object
+        small_iou = ious <= threshold 
+        small_boxes = boxes[small_iou]
+        
+        am = AspectRatioMetric(name='aspect ratio')
+        bm = BoxSizeMetric(name='box size')
+        am.update(small_boxes)
+        bm.update(small_boxes)
+        
+        small_rate = (small_iou).sum() / ious.size
+        return small_rate, bm, am
+        

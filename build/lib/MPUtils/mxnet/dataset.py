@@ -4,7 +4,9 @@ from mxnet import gluon, nd, image
 import numpy as np
 
 from mxnet import nd
+from .. import CaltechPathParser
 import cv2
+
 class LstDataset(gluon.data.dataset.Dataset):
     """A dataset for loading from lst files, line store (image_path, label_path) pair fomat like::
         /home/user/dataset/test1.jpg /home/user/dataset/test2.txt
@@ -67,6 +69,11 @@ class LstDataset(gluon.data.dataset.Dataset):
     @property
     def classes(self):
         return self.label_parser.classes
+
+class LstDataset_v2(LstDataset):
+    def __getitem__(self, idx):
+        data, label = super(LstDataset_v2, self).__getitem__(idx)
+        return data, label, CaltechPathParser.path2id(self.items[idx][0])
 
 class ComposeDataLoader(object):
     def __init__(self, *loaders):

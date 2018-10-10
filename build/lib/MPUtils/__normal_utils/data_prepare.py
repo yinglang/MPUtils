@@ -58,7 +58,9 @@ def generate_list(dataset_root, lst_file, filter=None, write_line=write_line, im
             list_f.write(write_line(anno_path, img_path, name))  
     list_f.close()
 
-
+"""
+    label parser, path parser and other parser for data prepare
+"""
 class LabelParser(object):
     """
     base class for Label parse, for LstDataset
@@ -119,3 +121,30 @@ class CaltechLabelParser(LabelParser):
                 difficult = 0
                 labels.append([xmin, ymin, xmax, ymax, cid, difficult])
         return np.array(labels)
+    
+class CaltechPathParser(object):
+    def path2id(self, *args, **kwargs):
+        return CaltechPathParser.path2id(*args, **kwargs)
+    
+    def id2path(self, *args, **kwargs):
+        return CaltechPathParser.id2path(*args, **kwargs)
+    
+    @staticmethod
+    def path2id(imgpath):
+        idx = imgpath.rfind('/')
+        if idx == -1:
+            idx= imgpath.rfind('\\')
+        imgname = imgpath[idx+1:] if idx != -1 else imgpath #set01_V003_I00089.jpg
+        subname = imgname.split('_')
+        setid = int(subname[0][3:])
+        vid = int(subname[1][1:])
+        idx = subname[2].rfind('.')
+        iid = int(subname[2][1:idx])
+        return [setid, vid, iid]
+    
+    @staticmethod
+    def id2path(ids, root_dir='', suffix='.jpg'):
+        setid, vid, iid = ids
+        setid, vid, iid = str(int(setid)).zfill(2), str(int(vid)).zfill(3), str(int(iid)).zfill(5)
+        name = '_'.join(['set' + setid, 'V' + vid, 'I' + iid + suffix])
+        return os.path.join(root_dir, name)

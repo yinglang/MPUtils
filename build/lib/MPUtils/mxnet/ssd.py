@@ -15,6 +15,7 @@ from gluoncv import model_zoo as gmodel_zoo
 
     SSD Detector:
         MPUSSDAnchorGenerator: class
+        MPUSSDTargetGenerator: class
         MPUSSD: class
     
     debug:
@@ -26,7 +27,7 @@ from gluoncv import model_zoo as gmodel_zoo
     1. data prepare
 """
 def ssd_data_loader(batch_size, width, height, mean, std, anchors=None, net=None, num_workers=0, 
-                    train_dataset=None, valid_dataset=None, valid_train=False, batchify_fns=None, train_transform_kwargs={}):
+                    train_dataset=None, valid_dataset=None, valid_train_dataset=None, batchify_fns=None, train_transform_kwargs={}, train_shuffle=True):
     """
         train_transform_kwargs = {
             'color_distort_kwargs': {'brightness_delta': 32, 'contrast_low': 0.5, 'contrast_high': 1.5,
@@ -67,9 +68,11 @@ def ssd_data_loader(batch_size, width, height, mean, std, anchors=None, net=None
                         'valid_train': Tuple(get_batchify([Stack(), Pad(pad_val=-1)], len(train_dataset[0])))}
     elif 'valid_train' not in batchify_fns:
         batchify_fns['valid_train'] = Tuple(get_batchify([Stack(), Pad(pad_val=-1)], len(train_dataset[0])))
+    if anchors is None:
+        batchify_fns['train'] = Tuple(get_batchify([Stack(), Pad(pad_val=-1)] , len(train_dataset[0])))
     
     return tri_data_loader(batch_size, transform_train, transform_valid, num_workers, train_dataset=train_dataset,
-                       valid_dataset=valid_dataset, valid_train=valid_train, batchify_fns=batchify_fns)
+                       valid_dataset=valid_dataset, valid_train_dataset=valid_train_dataset, batchify_fns=batchify_fns, train_shuffle=train_shuffle)
 
 
 """
@@ -103,44 +106,70 @@ class MPUSSDAnchorGenerator(gluon.HybridBlock):
 
     """
     def __init__(self, index, im_size, sizes, ratios, step, alloc_size=(128, 128),
-                 offsets=(0.5, 0.5), clip=False, use_default_size=True, **kwargs):
+                 offsets=(0.5, 0.5), clip=False, generate_type='default', use_whsize=False, **kwargs):
+        """
+            generate_type: 'default' means anchor type is s[0] compose with r[i] + r[0] compose with s[1], s = (min_size, sqrt(min_size * max_size)), will use anchor_num=m+n-1=2+n-1=n+1
+                           'paper' mean anchor type is s[0] compose with r[i] + r[0] compose with all s[i], anchor_num=m+n-1
+                           'pair' means anchor_num=m * n
+            use_whsize: use_whsize=True, sizes is [(w1, h1), (w2, h2), ...], ratios and genetate_type is not meaning.
+        """
         super(MPUSSDAnchorGenerator, self).__init__(**kwargs)
         assert len(im_size) == 2
         self._im_size = im_size
         self._clip = clip
-        if use_default_size: self._sizes = (sizes[0], np.sqrt(sizes[0] * sizes[1]))
+        self.generate_type = generate_type.lower()
+        if self.generate_type=='default' and not use_whsize: 
+            assert len(sizes) == 2, "when generate_type='default', SSD requires sizes to be (size_min, size_max)"
+            self._sizes = (sizes[0], np.sqrt(sizes[0] * sizes[1]))
         else: self._sizes = sizes[:]
+        self.use_whsize = use_whsize
         self._ratios = ratios
         anchors = self._generate_anchors(self._sizes, self._ratios, step, alloc_size, offsets)
         self.anchors = self.params.get_constant('anchor_%d'%(index), anchors)
 
+    def _get_wh(self, sizes, ratios):
+        if self.use_whsize: return sizes
+        whsize = []
+        if self.generate_type == 'pair':
+            for s in sizes:
+                for r in ratios:
+                    sr = np.sqrt(r)
+                    w = s * sr
+                    h = s / sr
+                    whsize.append([w, h])
+        else:
+            r = ratios[0]
+            for s in sizes:
+                sr = np.sqrt(r)
+                w = s * sr
+                h = s / sr
+                whsize.append([w, h])
+
+            # size = sizes[0], ratio = ...
+            for r in ratios[1:]: # s[0] -> all r[1:]
+                sr = np.sqrt(r)
+                w = sizes[0] * sr
+                h = sizes[0] / sr
+                whsize.append([w, h])
+        return whsize
+            
     def _generate_anchors(self, sizes, ratios, step, alloc_size, offsets):
-        """Generate anchors for once."""
-        assert len(sizes) == 2, "SSD requires sizes to be (size_min, size_max)"
+        """Generate anchors for once.""" 
+        whsize = self._get_wh(sizes, ratios)
         anchors = []
         for i in range(alloc_size[0]):
             for j in range(alloc_size[1]):
                 cy = (i + offsets[0]) * step
                 cx = (j + offsets[1]) * step
-                # ratio = ratios[0], size = size_min or sqrt(size_min * size_max)
-                r = ratios[0]
-                for s in sizes:
-                    sr = np.sqrt(r)
-                    w = s * sr
-                    h = s / sr
-                    anchors.append([cx, cy, w, h])
-
-                # size = sizes[0], ratio = ...
-                for r in ratios[1:]: # s[0] -> all r[1:]
-                    sr = np.sqrt(r)
-                    w = sizes[0] * sr
-                    h = sizes[0] / sr
+                for w, h in whsize:
                     anchors.append([cx, cy, w, h])
         return np.array(anchors).reshape(1, 1, alloc_size[0], alloc_size[1], -1)
 
     @property
     def num_depth(self):
         """Number of anchors at each pixel."""
+        if self.generate_type == 'pair':
+            return len(self._sizes) * len(self._ratios)
         return len(self._sizes) + len(self._ratios) - 1
 
     # pylint: disable=arguments-differ
@@ -154,16 +183,68 @@ class MPUSSDAnchorGenerator(gluon.HybridBlock):
             if concat: a = F.concat(*a, dim=-1)
         return a.reshape((1, -1, 4))
 
+from mxnet import nd
+from mxnet.gluon import Block
+from gluoncv.nn.matcher import CompositeMatcher, BipartiteMatcher, MaximumMatcher
+from gluoncv.nn.sampler import OHEMSampler, NaiveSampler
+from gluoncv.nn.coder import MultiClassEncoder, NormalizedBoxCenterEncoder
+from gluoncv.nn.bbox import BBoxCenterToCorner
+
+
+class MPUSSDTargetGenerator(Block):
+    """Training targets generator for Single-shot Object Detection.
+
+    Parameters
+    ----------
+    iou_thresh : float
+        IOU overlap threshold for maximum matching, default is 0.5.
+    neg_thresh : float
+        IOU overlap threshold for negative mining, default is 0.5.
+    negative_mining_ratio : float
+        Ratio of hard vs positive for negative mining.
+    stds : array-like of size 4, default is (0.1, 0.1, 0.2, 0.2)
+        Std value to be divided from encoded values.
+    """
+    def __init__(self, iou_thresh=0.5, neg_thresh=0.5, negative_mining_ratio=3,
+                 stds=(0.1, 0.1, 0.2, 0.2), **kwargs):
+        super(MPUSSDTargetGenerator, self).__init__(**kwargs)
+        self._matcher = CompositeMatcher([BipartiteMatcher(), MaximumMatcher(iou_thresh)])
+        if negative_mining_ratio > 0:
+            self._sampler = OHEMSampler(negative_mining_ratio, thresh=neg_thresh)
+            self._use_negative_sampling = True
+        else:
+            self._sampler = NaiveSampler()
+            self._use_negative_sampling = False
+        self._cls_encoder = MultiClassEncoder()
+        self._box_encoder = NormalizedBoxCenterEncoder(stds=stds)
+        self._center_to_corner = BBoxCenterToCorner(split=False)
+
+    # pylint: disable=arguments-differ
+    def forward(self, anchors, cls_preds, gt_boxes, gt_ids):
+        """Generate training targets."""
+        anchors = self._center_to_corner(anchors.reshape((-1, 4)))
+        ious = nd.transpose(nd.contrib.box_iou(anchors, gt_boxes), (1, 0, 2))
+        matches = self._matcher(ious)
+        if self._use_negative_sampling:
+            samples = self._sampler(matches, cls_preds, ious)
+        else:
+            samples = self._sampler(matches)
+        cls_targets = self._cls_encoder(samples, matches, gt_ids)
+        box_targets, box_masks = self._box_encoder(samples, matches, anchors, gt_boxes)
+        return cls_targets, box_targets, box_masks
+
 
 class MPUSSD(nn.HybridBlock):
     def __init__(self, im_size, features, sizes, ratios, steps, classes,
                  stds=(0.1, 0.1, 0.2, 0.2), nms_thresh=0.45, nms_topk=400, post_nms=100,
-                 anchor_alloc_size=128, ctx=mx.cpu(), verbose=False, **kwargs):
+                 anchor_alloc_size=128, ctx=mx.cpu(), verbose=False,
+                 anchor_generate_type='default', anchor_use_whsize=False, **kwargs):
         super(MPUSSD, self).__init__(**kwargs)
         num_layers = len(list(sizes))
-        assert len(sizes) == len(ratios), \
-            "Mismatched (number of layers) vs (sizes) vs (ratios): {}, {}, {}".format(
-                num_layers, len(sizes), len(ratios))
+        if not anchor_use_whsize:
+            assert len(sizes) == len(ratios), \
+                "Mismatched (number of layers) vs (sizes) vs (ratios): {}, {}, {}".format(
+                    num_layers, len(sizes), len(ratios))
         assert num_layers > 0, "SSD require at least one layer, suggest multiple."
         self._num_layers = num_layers
         self.classes = classes
@@ -179,7 +260,8 @@ class MPUSSD(nn.HybridBlock):
             self.anchor_generators = nn.HybridSequential()
             asz = anchor_alloc_size
             for i, s, r, st in zip(range(num_layers), sizes, ratios, steps):
-                anchor_generator = MPUSSDAnchorGenerator(i, im_size, s, r, st, (asz, asz))
+                anchor_generator = MPUSSDAnchorGenerator(i, im_size, s, r, st, (asz, asz), 
+                                                 generate_type=anchor_generate_type, use_whsize=anchor_use_whsize)
                 self.anchor_generators.add(anchor_generator)
                 asz = max(asz // 2, 16)  # pre-compute larger than 16x16 anchor map
                 num_anchors = anchor_generator.num_depth
@@ -187,12 +269,13 @@ class MPUSSD(nn.HybridBlock):
                 self.box_predictors.add(gmodel_zoo.ssd.ConvPredictor(num_anchors * 4))
             self.bbox_decoder = gmodel_zoo.ssd.NormalizedBoxCenterDecoder(stds)
             self.cls_decoder = gmodel_zoo.ssd.MultiPerClassDecoder(len(self.classes) + 1, thresh=0.01)
-            
-        self.pretrained_block = nn.HybridSequential()
-        self.pretrained_block.add(features.pretrained_block)
-        self.other_block = nn.HybridSequential()
-        self.other_block.add(features.other_block)
-        self.other_block.add(self.class_predictors, self.box_predictors)
+        
+        if hasattr(features, 'pretrained_block') and hasattr(features, 'other_block'):
+            self.pretrained_block = nn.HybridSequential()
+            self.pretrained_block.add(features.pretrained_block)
+            self.other_block = nn.HybridSequential()
+            self.other_block.add(features.other_block)
+            self.other_block.add(self.class_predictors, self.box_predictors)
 
     @property
     def num_classes(self):
@@ -261,6 +344,28 @@ class MPUSSD(nn.HybridBlock):
 """
      3. for statistic and debug
 """
+def get_anchor_targets(labels, anchors, target_generator=MPUSSDTargetGenerator(negative_mining_ratio=-1)):
+    """
+        not like used in TrainTransform, get_anchor_targets input wiht a bacth's data, not a image's data.
+
+        labels: nd.array or np.array, shape=(batch_size, n, t),(t>5), [[[xmin, ymin, xmax, ymax, label,...], ...]], label can use -1 pad
+        anchors: nd.array, shape=(1, ac, 4) or (ac, 4), anchors generate by SSDAnchorGeneraor, ac means anchor count
+        target_generator: anchor target generator, MPUSSDTargetGenerator or SSDTargetGenerator
+    """
+    if isinstance(labels, type(nd.array([0]))):
+        labels = labels.asnumpy()
+    #print(gt_bboxes.shape, gt_ids.shape, anchors.shape)
+    batch_cls_targets, batch_box_targets = [], []
+    for label in labels:
+        label = label[label[:, 4] >= 0]
+        gt_bboxes = mx.nd.array(label[np.newaxis, :, :4])
+        gt_ids = mx.nd.array(label[np.newaxis, :, 4:5])
+        cls_targets, box_targets, _ = target_generator(anchors, None, gt_bboxes, gt_ids)
+        batch_cls_targets.append(cls_targets)
+        batch_box_targets.append(box_targets)
+    return nd.concat(*batch_cls_targets, dim=0), nd.concat(*batch_box_targets, dim=0)
+
+
 def get_center_ids(anchors, anchor_generators, feat_size=None):
     """
         anchors: un-concat anchors when feat_size is None or len==0, or use feat_size specify every feat's size(w*h)
@@ -306,3 +411,39 @@ def get_objcet_id(bbox_t, EPS = 1):
             obj_t[error < EPS] = obj_id
             obj_id += 1
     return obj_t
+
+def get_objects(bbox_t, EPS = 1):
+    """
+        bbox_t: valid target box that anchor after decode  (label)
+        
+        get object id for each valid target box
+        return: 
+            obj_boxes: [[obj1_x1, obj1_y1, obj1_x2, obj1_y2]...], shape=(num_obj, 4)
+            obj_t: [box1_object_id, box2_object_id ....], shape=(num_anchors,)
+    """
+    obj_id = 0
+    obj_t = np.array([-1]* len(bbox_t))
+    obj_boxes = []
+    for i, (oid, box) in enumerate(zip(obj_t, bbox_t)):  # count repeat box numbers, and give euqaled box a same obj_id.
+        if oid < 0:  # not compared yet.
+            error = np.mean(np.abs(bbox_t - box), axis=-1)
+            obj_t[error < EPS] = obj_id
+            obj_boxes.append(box)
+            obj_id += 1
+    return np.array(obj_boxes), obj_t
+
+def get_feat_size(net, data_loader):
+    for i, batch in enumerate(train_data):  
+        x = batch[0]
+        feat_size = []
+        for feat in net.features(x):
+            feat_size.append(feat.shape[2] * feat.shape[3])
+        break
+    return feat_size
+
+def get_anchors(net, data_loader):
+    for batch in data_loader:
+        with autograd.train_mode():
+            _, _, anchors = net(batch[0])
+        break
+    return anchors
