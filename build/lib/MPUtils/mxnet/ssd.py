@@ -14,6 +14,7 @@ from gluoncv import model_zoo as gmodel_zoo
         ssd_data_loader: func
 
     SSD Detector:
+        FeatureNet
         MPUSSDAnchorGenerator: class
         MPUSSDTargetGenerator: class
         MPUSSD: class
@@ -106,7 +107,7 @@ class MPUSSDAnchorGenerator(gluon.HybridBlock):
 
     """
     def __init__(self, index, im_size, sizes, ratios, step, alloc_size=(128, 128),
-                 offsets=(0.5, 0.5), clip=False, generate_type='default', use_whsize=False, **kwargs):
+                 offsets=(0.5, 0.5), clip=False, generate_type='default', use_whsize=False, verbose=False, **kwargs):
         """
             generate_type: 'default' means anchor type is s[0] compose with r[i] + r[0] compose with s[1], s = (min_size, sqrt(min_size * max_size)), will use anchor_num=m+n-1=2+n-1=n+1
                            'paper' mean anchor type is s[0] compose with r[i] + r[0] compose with all s[i], anchor_num=m+n-1
@@ -115,6 +116,7 @@ class MPUSSDAnchorGenerator(gluon.HybridBlock):
         """
         super(MPUSSDAnchorGenerator, self).__init__(**kwargs)
         assert len(im_size) == 2
+        self.verbose = verbose
         self._im_size = im_size
         self._clip = clip
         self.generate_type = generate_type.lower()
@@ -174,6 +176,7 @@ class MPUSSDAnchorGenerator(gluon.HybridBlock):
 
     # pylint: disable=arguments-differ
     def hybrid_forward(self, F, x, anchors, concat=True):
+        if self.verbose: print("feature shape", x.shape, "alloc anchor", anchors.shape)
         a = F.slice_like(anchors, x * 0, axes=(2, 3))
         a = a.reshape((1, -1, 4))
         if self._clip:
@@ -260,7 +263,7 @@ class MPUSSD(nn.HybridBlock):
             self.anchor_generators = nn.HybridSequential()
             asz = anchor_alloc_size
             for i, s, r, st in zip(range(num_layers), sizes, ratios, steps):
-                anchor_generator = MPUSSDAnchorGenerator(i, im_size, s, r, st, (asz, asz), 
+                anchor_generator = MPUSSDAnchorGenerator(i, im_size, s, r, st, (asz, asz), verbose=verbose,
                                                  generate_type=anchor_generate_type, use_whsize=anchor_use_whsize)
                 self.anchor_generators.add(anchor_generator)
                 asz = max(asz // 2, 16)  # pre-compute larger than 16x16 anchor map
@@ -433,7 +436,7 @@ def get_objects(bbox_t, EPS = 1):
     return np.array(obj_boxes), obj_t
 
 def get_feat_size(net, data_loader):
-    for i, batch in enumerate(train_data):  
+    for i, batch in enumerate(data_loader):  
         x = batch[0]
         feat_size = []
         for feat in net.features(x):

@@ -4,6 +4,7 @@
 from math import sqrt
 import numpy as np
 import matplotlib.pyplot as plt
+from .visualize import plotly_hist3d
 
 """
     1. get recomand box size, aspect ratio for ssd detector.
@@ -223,7 +224,15 @@ class BoxSizeAspectRatioMetric(StatisticMetric):
         plt.xlabel('box ' + size_type.lower())
         plt.ylabel('aspect ratio')
         return plt.plot(r[:, idx], r[:, 3], plot_fmt, *args, **kwargs)
-
+    
+    def hist3d(self, size_type='size', bins=(30, 20), normed=True, *args, **kwargs):
+        def middle(x):
+            return (x[:-1] + x[1:]) / 2
+        size_type = size_type.lower()
+        idxes = {'width':0, 'height':1, 'size':2}
+        idx = idxes[size_type.lower()]
+        r = np.array(self._data) 
+        return plotly_hist3d(r[:, idx], r[:, 3], bins=bins, normed=normed, **kwargs)
 import pandas
 EPS=1e-10
 class AnchorLevelMetric(StatisticMetric):

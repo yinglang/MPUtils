@@ -8,6 +8,10 @@ import os
 import shutil
 from .bbox import inv_normalize_box
 
+"""
+    1. cv2 tool
+"""
+
 import cv2 as cv
 from math import sqrt, ceil, floor
 def merge_images(imgs, MN=None, shape=None, space=1):
@@ -34,6 +38,33 @@ def merge_images(imgs, MN=None, shape=None, space=1):
             merged_img[ms:ms+s[0], ns:ns+s[1], :] = cv.resize(imgs[i], shape[:2]).reshape((s[0], s[1], -1))
     return merged_img
 
+import cv2
+def add_cv2_rects(img, boxes, color, linewidth=1):
+    for box in boxes:
+        x1, y1, x2, y2 = box[:4].astype(np.int)
+        # print(x1, y1, x2, y2, img.shape)
+        img = cv2.rectangle(img, (x1, y1, x2-x1, y2-y1), color=color, thickness=linewidth)
+    return img
+
+def write_image(filename, image, label, color=(0, 255, 0), linewidth=1, bboxes_list=[], bboxes_colors=[]):
+    """
+        label: np.array, [[x1, y1, x2, y2, (cid, (score))]]
+    """
+    image = image.astype(np.uint8)
+    if label.shape[1] > 4: label = label[label[:, 4] >= 0]
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+    image = add_cv2_rects(image, label, color, linewidth)
+    for boxes, box_color in zip(bboxes_list, bboxes_colors):
+        image = add_cv2_rects(image, boxes, box_color, linewidth)
+#     cv2.imshow('', image)
+#     cv2.waitKey()
+    cv2.imwrite(filename, image)
+
+
+"""
+    2. matpltlib tool
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 def box_to_rect(box, color, linewidth=1):
@@ -206,7 +237,7 @@ def show_det_results(images, outs, labels=None, rgb_mean=np.array([0, 0, 0]), st
                         rect = box_to_rect(box, color, linewidth)
                         fig.add_patch(rect)
                         if show_text:
-                            text = class_names[class_id] if class_names else "class " + str(class_id)
+                            text = class_names[class_id] if class_names else str(class_id)
                             fig.text(box[0], box[1],
                                            '{:s} {:.2f}'.format(text, score),
                                            bbox=dict(facecolor=color, alpha=0.5),
@@ -224,7 +255,7 @@ def show_det_results(images, outs, labels=None, rgb_mean=np.array([0, 0, 0]), st
                         rect = box_to_rect(box, 'red', linewidth)
                         fig.add_patch(rect)
                         if show_text:
-                            text = class_names[class_id] if class_names else "class " + str(class_id)
+                            text = class_names[class_id] if class_names else str(class_id)
                             fig.text(box[0], box[1],
                                            '{:s}'.format(text),
                                            bbox=dict(facecolor=color, alpha=0.5),
@@ -234,26 +265,35 @@ def show_det_results(images, outs, labels=None, rgb_mean=np.array([0, 0, 0]), st
                 fig.set_visible(False)
     #plt.show()
 
-import cv2
 
-def add_cv2_rects(img, boxes, color, linewidth=1):
-    for box in boxes:
-        x1, y1, x2, y2 = box[:4].astype(np.int)
-        # print(x1, y1, x2, y2, img.shape)
-        img = cv2.rectangle(img, (x1, y1, x2-x1, y2-y1), color=color, thickness=linewidth)
-    return img
-
-def write_image(filename, image, label, color=(0, 255, 0), linewidth=1, bboxes_list=[], bboxes_colors=[]):
+"""
+    plotly plot tool
+"""
+import plotly.offline as py
+import plotly.graph_objs as go
+def plotly_plot3d(x, y, z, Surface_kwargs={}, Layout_kwargs={}):
     """
-        label: np.array, [[x1, y1, x2, y2, (cid, (score))]]
+        params:
+        -------
+            x: np.array, shape=(M, ), or (N, M)
+            y: np.array, shape=(N, ), or (N, M)
+            z: np.array, shape=(N, M), attention not (M, N), it 's matplotlib plot3d's z.T.
+        attention:
+            for 3d, row is y, col is x, z[y, x] is position (x, y)'s value.
+            np.histogram2d(x, y, bins=(M, N)) return z, x, y, shape is (M, N), (M,), (N,), so z need to be z.T.
     """
-    image = image.astype(np.uint8)
-    if label.shape[1] > 4: label = label[label[:, 4] >= 0]
-    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    Layout_default_kwargs = {'width': 800, 'height': 800, 'autosize': False,
+                             'xaxis': dict(title='box size'), 'yaxis': dict(title='aspect ratio')}
+    for key in Layout_default_kwargs:
+        if key not in Layout_kwargs: Layout_kwargs[key] = Layout_default_kwargs[key]
+            
+    data = [go.Surface(x=x,y=y,z=z,**Surface_kwargs)]
+    layout = go.Layout(**Layout_kwargs)
+    fig = go.Figure(data=data, layout=layout)
+    py.iplot(fig, filename='elevations-3d-surface')
 
-    image = add_cv2_rects(image, label, color, linewidth)
-    for boxes, box_color in zip(bboxes_list, bboxes_colors):
-        image = add_cv2_rects(image, boxes, box_color, linewidth)
-#     cv2.imshow('', image)
-#     cv2.waitKey()
-    cv2.imwrite(filename, image)
+def plotly_hist3d(x, y, bins=(10, 10), normed=False, Surface_kwargs={}, Layout_kwargs={}):
+    z, x, y = np.histogram2d(x, y, bins=bins, normed=normed)
+    z = z.T # z[y, x] is plotly plot need
+    return plotly_plot3d(x, y, z)
+    

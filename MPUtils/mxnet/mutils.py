@@ -50,6 +50,54 @@ def tri_data_loader(batch_size, transform_train, transform_valid, num_workers=0,
                             num_workers=num_workers)
         return train_data, valid_data, train_dataset.classes, valid_train_data
 
+from mxnet import nd
+def load_parameters(net, filename, ctx=None, allow_missing=False,
+                    ignore_extra=False, ignore_different=False, verbose=False):
+    loaded = nd.load(filename)
+    params = net._collect_params_with_prefix()
+    if not loaded and not params:
+        return
+
+    if not any('.' in i for i in loaded.keys()):
+        # legacy loading
+        del loaded
+        net.collect_params().load(
+            filename, ctx, allow_missing, ignore_extra, net.prefix)
+        return
+
+    if not allow_missing:
+        for name in params.keys():
+            assert name in loaded, \
+                "Parameter '%s' is missing in file '%s', which contains parameters: %s. " \
+                "Set allow_missing=True to ignore missing parameters."%(
+                    name, filename, gluon.block._brief_print_list(loaded.keys()))
+    elif verbose:
+        for name in params.keys():
+            if name not in loaded:
+                print('miss key {} in model file'.format(name))
+                      
+    for name in loaded:
+        if name not in params:
+            if not ignore_extra:
+                raise ValueError(
+                    "Parameter '%s' loaded from file '%s' is not present in ParameterDict, " \
+                    "which contains parameters %s. Set ignore_extra=True to ignore. "%(
+                        name, filename, gluon.block._brief_print_list(net._params.keys())))
+            elif verbose:
+                 print('ignore extra key {} in model file'.format(name))
+        if name in params:
+#             if ignore_different and params[name].shape != loaded[name].shape: 
+#                 print(name, params[name].shape, loaded[name].shape)
+#                 continue
+            try:
+                params[name]._load_init(loaded[name], ctx)
+            except BaseException as e:
+                if verbose:
+                    print('ignore key {} cause diffrent shape {} vs {}'.format(name,
+                                params[name].shape, loaded[name].shape))
+                if not ignore_different:
+                    raise e
+
 """
  data visulize
 """
