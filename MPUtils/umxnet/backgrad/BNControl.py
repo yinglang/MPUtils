@@ -1,16 +1,11 @@
 # insert ../ directory
-import os
-import sys
-_ = os.path.abspath(os.path.abspath(__file__) + '/../../')
-if _ not in sys.path:
-    sys.path.insert(0, _)
-    
-from mutils import show_images, inv_normalize
-import mxnet as mx
-from mxnet import gluon, nd, autograd
-from mxnet.gluon import loss, nn
-from mxnet.gluon.loss import SoftmaxCrossEntropyLoss as SCELoss
-import numpy as np
+# import os
+# import sys
+# _ = os.path.abspath(os.path.abspath(__file__) + '/../../')
+# if _ not in sys.path:
+#     sys.path.insert(0, _)
+from mxnet import nd
+
 
 def bn_checker(BNs):
     params = []
@@ -26,6 +21,7 @@ def bn_checker(BNs):
             diff += nd.sum(nd.abs(nparam - param)).asscalar()
         return diff
     return compare
+
 
 class BNControl(object):
     """
@@ -72,6 +68,7 @@ class BNControl(object):
             for i in range(len(self.bns)):
                 bn, data = self.bns[i], self.data_list[i]
                 bn._kwargs['use_global_stats'] = data
+
 
 class ResNetBNControl(BNControl):
     """

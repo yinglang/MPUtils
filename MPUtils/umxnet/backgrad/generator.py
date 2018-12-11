@@ -1,36 +1,40 @@
 from mxnet.gluon.loss import SoftmaxCrossEntropyLoss as SCELoss
-from BNControl import *
-from optimizer import *
-from constraint import *
-from labelmap import *
-from LossCalculator import *
-from logger import *
+from .BNControl import *
+from .optimizer import *
+from .constraint import *
+from .labelmap import *
+from .LossCalculator import *
+from .logger import *
 
-# insert ../ directory
-import os
-import sys
-_ = os.path.abspath(os.path.abspath(__file__) + '/../../')
-if _ not in sys.path:
-    sys.path.insert(0, _)
+# # insert ../ directory
+# import os
+# import sys
+# _ = os.path.abspath(os.path.abspath(__file__) + '/../../')
+# if _ not in sys.path:
+#     sys.path.insert(0, _)
     
-from mutils import show_images, inv_normalize
+from ..mutils import inv_normalize
 import mxnet as mx
 from mxnet import gluon, nd, autograd
 from mxnet.gluon import loss, nn
 from mxnet.gluon.loss import SoftmaxCrossEntropyLoss as SCELoss
 import os
+
+
 def mkdir_if_not_exist(dirs):
     if not os.path.exists(dirs):
         os.makedirs(dirs)
-    
+
+
 def WFlip(data): # axis=3
     data[:, :, :, :] = data[:, :, :, ::-1]
+
 
 def generate_backgrad_data(net, data, label, ctx=mx.gpu(0), bn_control=None, 
                            max_iters=60, sgd=SGD(lr=0.1), # optimizer args
                            iter_log_period=None, show_clip=False, record_detail=False, logger=None,# log args
                            labelmap=None, labeloutputmap=None, loss_f=SCELoss(), # loss_args
-                           threshold=None, flip=False, constraint=None):#constraint_agrs
+                           threshold=None, flip=False, constraint=None, mean=0, std=1):#constraint_agrs
     """
         param:
             net: base net model
@@ -55,7 +59,7 @@ def generate_backgrad_data(net, data, label, ctx=mx.gpu(0), bn_control=None,
     sparse_label = label.copy()
     if labelmap is not None: label = labelmap(sparse_label)
     data, label, sparse_label_ctx = data.as_in_context(ctx), label.as_in_context(ctx), sparse_label.as_in_context(ctx)
-    if logger is None: logger = LogRecorder()
+    if logger is None: logger = LogRecorder(mean, std)
     if record_detail:
         origin_data = data.copy()
     if constraint is None:
@@ -90,7 +94,8 @@ def generate_backgrad_data(net, data, label, ctx=mx.gpu(0), bn_control=None,
     logger.asnumpy()
     sgd.clear()
     return data, (logger, )
-    
+
+
 def generate_backgrad_data_def_loss(net, data, label, ctx=mx.gpu(0), bn_control=None, 
                            max_iters=60, sgd=SGD(lr=0.1), # optimizer args
                            iter_log_period=None, show_clip=False, record_detail=False, logger=None,# log args
@@ -153,6 +158,7 @@ def generate_backgrad_data_def_loss(net, data, label, ctx=mx.gpu(0), bn_control=
     sgd.clear()
     return data, (logger, )
 
+
 def adversarial_acc(net, data_iter, bn_control, generator=generate_backgrad_data, **kwargs):
     bn_control.store()
     i= 0
@@ -176,6 +182,8 @@ def adversarial_acc(net, data_iter, bn_control, generator=generate_backgrad_data
 """
     generate and save adversarial sample for a dataset
 """
+
+
 class LoggerSum(object):
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -188,13 +196,17 @@ class LoggerSum(object):
         
         
 from PIL import Image
+
+
 def save_nparray_as_img(array, save_path):
     img = Image.fromarray(array)
     img.save(save_path)
 
+
 def turn_name(idx, fmt=5):
     idx = str(idx)
     return "0" * (fmt-len(idx)) + idx
+
 
 def turn_dataset_image_name(data_dir, fmt=3):
     for l in os.listdir(data_dir):
@@ -205,7 +217,8 @@ def turn_dataset_image_name(data_dir, fmt=3):
             idx, ext = os.path.splitext(iname)
             niname = turn_name(int(idx), fmt) + ext
             os.rename(path + '/' + iname, path + '/' + niname)
-            
+
+
 def turn_dataset_2_jpeg(data_dir, out_dir):
     mkdir_if_not_exist(out_dir)
     mse, n = 0., 0
@@ -221,6 +234,7 @@ def turn_dataset_2_jpeg(data_dir, out_dir):
             n += 1
     return mse/n
 
+
 def save_data(data, label, save_prefix, label_idx, fmt=4, ext='.npy'):
     data = data.transpose((0, 2, 3, 1)).asnumpy()
     label = label.reshape((-1, )).asnumpy()
@@ -228,6 +242,7 @@ def save_data(data, label, save_prefix, label_idx, fmt=4, ext='.npy'):
         l = int(l)
         np.save(save_prefix + "/" + turn_name(l, fmt) + "/" + turn_name(label_idx[l], fmt), img)
         label_idx[l] += 1
+
 
 def dataset_adverarial(data_iter, mean, std, output_path, net, ctx, bn_control, generator, fmt=4, **kwargs):
     mkdir_if_not_exist(output_path)
@@ -257,4 +272,3 @@ def dataset_adverarial(data_iter, mean, std, output_path, net, ctx, bn_control, 
     logger_sum.kwargs['result_score'] = np.exp(logger_sum.kwargs['result_score'])
     bn_control.load()
     return logger_sum.kwargs
-    

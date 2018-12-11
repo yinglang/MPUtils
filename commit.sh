@@ -29,8 +29,8 @@ fi
 #
 echo "re-install MPUtils ....................................."
 echo
-sudo -H pip uninstall MPUtils
-sudo -H pip install dist/MPUtils-0.1.0-py2.py3-none-any.whl
+pip uninstall MPUtils
+pip install dist/MPUtils-0.1.0-py2.py3-none-any.whl
 
 echo
 echo "re-install MPUtils complete."

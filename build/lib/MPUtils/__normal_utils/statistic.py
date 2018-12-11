@@ -10,6 +10,35 @@ from .visualize import plotly_hist3d
     1. get recomand box size, aspect ratio for ssd detector.
 """
 
+def equal_dis_point(data, bins=None, iner_bins=None, geometric=False, image_size=None):
+    def norm(d, to_mean=True):
+        if to_mean: d = (d[1:] + d[:-1])/2
+        if geometric: d = np.exp(d)
+        if image_size is not None: d /= image_size
+        return d
+    
+    EPS = 1e-10
+    data = np.sort(data)
+    if bins is None: 
+        assert geometric == True, 'only geometric mean can use ceil(log2(max-min)) as default bins, or you need set "bins".'
+        bins = int(np.ceil(np.log2(data[-1]/data[0])))
+        
+    if geometric: data = np.log(data)
+    count, edge = np.histogram(data, bins=bins)
+    if iner_bins is not None:
+        assert len(iner_bins) == bins
+        iner_counts, iner_means = [], []
+        for i, iner_bin in enumerate(iner_bins):
+            iner_data = data[np.all([data >= edge[i], data < edge[i+1]], axis=0)]
+            iner_count, iner_edge = np.histogram(iner_data, bins=iner_bin)
+            iner_counts.append(iner_count/len(data))
+            iner_means.append(iner_edge)
+            
+        for i in range(len(iner_means)): iner_means[i] = norm(iner_means[i], to_mean=True)
+        return iner_means, iner_counts
+            
+    return norm(edge, to_mean=False), (count) / len(data), bins
+
 def euqal_part_point(data, bins=5, TYPE=None, geometric=False):
     """
         寻找bins等分点，find bins equal part point

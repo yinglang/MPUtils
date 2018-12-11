@@ -2,8 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-mpl.rcParams['figure.dpi'] = 120
-plt.figure(figsize=(12, 4))
+#mpl.rcParams['figure.dpi'] = 120
+#plt.figure(figsize=(12, 4))
 
 """
 most use print_log, parse_log, show_logs_multi_key, update

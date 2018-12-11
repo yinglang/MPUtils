@@ -381,18 +381,19 @@ def get_center_ids(anchors, anchor_generators, feat_size=None):
     if feat_size is not None and len(feat_size) > 0:
         all_anchors = anchors.shape[1]
         begin = 0
+        layer_anchors = []
         for fs, ag in zip(feat_size, anchor_generators):
-            anchors.slice_axis(axis=1, begin=begin, end=begin+fs*ag.num_depth)
+            layer_anchors.append(anchors.slice_axis(axis=1, begin=begin, end=begin+fs*ag.num_depth))
             begin += fs*ag.num_depth
         assert all_anchors == begin  # feat_size and anchor_depth must match anchor size 
         
     muti_scale_center_ids = []
     center_id = 0
-    for i in range(len(anchors)):
+    for i in range(len(layer_anchors)):
         # one center point can generate how namy equal-area box = (size+aspect-1)
         center_depth = anchor_generators[i].num_depth  
-        anchors[i] = anchors[i].reshape((-1, 4))
-        center_count = int(anchors[i].shape[0] / center_depth) # how many center == feature map W *H * center_depth
+        layer_anchors[i] = layer_anchors[i].reshape((-1, 4))
+        center_count = int(layer_anchors[i].shape[0] / center_depth) # how many center == feature map W *H * center_depth
         center_ids = np.array(list(range(center_id, center_id+center_count)))
         center_ids = center_ids.reshape((-1, 1)).repeat(center_depth, axis=1).reshape((-1,))
         muti_scale_center_ids.append(center_ids)

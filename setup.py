@@ -11,7 +11,7 @@ setup(
     long_description=open("README.rst").read(),
     license="MIT",
     url="https://github.com/yinglang/MPUtils",
-    packages=['MPUtils', 'MPUtils/__normal_utils', 'MPUtils/mxnet', 'MPUtils/pytorch'],
+    packages=['MPUtils', 'MPUtils/__normal_utils', 'MPUtils/umxnet', 'MPUtils/umxnet/backgrad', 'MPUtils/upytorch'],
     classifiers=[
         "Environment :: CPU Environment",
         'Intended Audience :: Developers',

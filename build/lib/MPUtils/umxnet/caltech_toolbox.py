@@ -8,7 +8,10 @@ import warnings
 def is_empty_dir(path):
     return (not os.path.exists(path)) or len(os.listdir(path)) == 0
 
-def write_result(cids, scores, bboxes, ids, root_dir, person_label, mode='xyxy'):
+def re_box(box, wh_scale):
+    return [box[0] * wh_scale[0], box[1] * wh_scale[1], box[2] * wh_scale[0], box[3] * wh_scale[1]]
+
+def write_result(cids, scores, bboxes, ids, root_dir, person_label, wh_scale=(1, 1), mode='xyxy', **kwargs):
     """
     write result to file as caltech toolbox format
 
@@ -28,7 +31,7 @@ def write_result(cids, scores, bboxes, ids, root_dir, person_label, mode='xyxy')
     iid = str(iid+1)
     for cid, score, bbox in zip(cids, scores, bboxes):
         if cid != person_label: continue
-        bbox = [str(b) for b in bbox]
+        bbox = [str(b) for b in re_box(bbox, wh_scale)]
         vfile.write(','.join([iid] + bbox + [str(score)]) + "\n")
     vfile.close()
     
@@ -72,7 +75,7 @@ def run_matlab_eval_code(matlab_code='../../dataset/CaltechPedestrians/code3.2.1
         f.close()
     return result
         
-def validate_matlab(net, val_data2, ctx, out_dir, person_label, clear_out_dir=False, verbose=False, is_test=True):
+def validate_matlab(net, val_data2, ctx, out_dir, person_label, clear_out_dir=False, verbose=False, is_test=True, **kwargs):
     """
       1. clear out_dir (default '../../dataset/CaltechPedestrains/origin/res/temp') and write result to it.
       2. run matlab code(default is '../../dataset/CaltechPedestrians/code3.2.1/MydbEval.m') to evaluate, 
@@ -108,7 +111,7 @@ def validate_matlab(net, val_data2, ctx, out_dir, person_label, clear_out_dir=Fa
             cid, scores, bboxes, ids = cid.asnumpy(), scores.asnumpy(), bboxes.asnumpy(), ids.asnumpy()
             #print(cid.shape, scores.shape, bboxes.shape, ids.shape)
             for icid, iscores, ibboxes, iids in zip(cid, scores, bboxes, ids):
-                write_result(icid, iscores, ibboxes, iids, out_dir, person_label)
+                write_result(icid, iscores, ibboxes, iids, out_dir, person_label, **kwargs)
             
     result = run_matlab_eval_code(verbose=verbose, is_test=is_test, input_result_dir=out_dir)
     return result

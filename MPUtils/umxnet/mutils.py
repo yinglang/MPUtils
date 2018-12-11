@@ -127,9 +127,8 @@ def show_merge_data(data, rgb_mean=0, std=1, MN=None, clip=False, **kwargs):
 def inv_normalize(data, rgb_mean, std):
     return (data.transpose((0, 2, 3, 1)) * std + rgb_mean).transpose((0, 3, 1, 2))
 
-def show_data(data, rgb_mean=0, std=1, **kwargs):
-    data = inv_normalize(data, rgb_mean, std=std)
-    show_images(data.asnumpy(), **kwargs)
+def show_data(data, rgb_mean=0, std=1, clip=True, **kwargs):
+    show_images(data.asnumpy(), rgb_mean=rgb_mean, std=std, clip=clip, **kwargs)
 
 def try_asnumpy(data):
     try:

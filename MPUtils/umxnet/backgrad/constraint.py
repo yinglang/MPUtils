@@ -15,6 +15,7 @@ class Constraint(object):
             for i in range(3):
                 data[:, i, :, :] = data[:, i, :, :].clip(threshold[0, i].asscalar(), threshold[1, i].asscalar())
 
+
 class RoundConstraint(Constraint):
     def _inv_normalize(self, data, mean=None, std=None, clip=True):
         std, mean = std.as_in_context(data.context), mean.as_in_context(data.context)
