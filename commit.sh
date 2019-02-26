@@ -1,5 +1,12 @@
 #/bin/bash
 
+# 
+if [ "$1" = "" ];then
+conda install plotly
+conda install pandas
+conda install imageio
+fi
+
 # regenerate .whl
 echo "re-build .whl file ....................................."
 echo
@@ -29,8 +36,11 @@ fi
 #
 echo "re-install MPUtils ....................................."
 echo
+
+cd ..
 pip uninstall MPUtils
-pip install dist/MPUtils-0.1.0-py2.py3-none-any.whl
+pip install MPUtils/dist/MPUtils-0.1.0-py2.py3-none-any.whl
+cd -
 
 echo
 echo "re-install MPUtils complete."

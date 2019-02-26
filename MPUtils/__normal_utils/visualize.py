@@ -152,7 +152,7 @@ def show_images(images, labels=None, rgb_mean=np.array([0, 0, 0]), std=np.array(
                 if labels is not None:
                     draw_bbox(fig, labels[N * i + j], color, linewidth, fontsize, normalized_label, wh, show_text)
                 for bboxes, box_color in zip(bboxes_list, bboxes_colors):
-                    draw_bbox(fig, bboxes, box_color, linewidth, fontsize, normalized_label, wh, show_text)
+                    draw_bbox(fig, bboxes[N * i + j], box_color, linewidth, fontsize, normalized_label, wh, show_text)
             else:
                 fig.set_visible(False)
     return figs

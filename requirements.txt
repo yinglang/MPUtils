@@ -1,0 +1,7 @@
+opencv
+plotly
+pandas
+imageio
+mxnet
+gluoncv
+
